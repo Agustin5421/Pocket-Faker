@@ -1,0 +1,35 @@
+# Frontend dependencies and build output
+/node_modules/
+/dist/
+
+# Rust and Tauri build output
+/src-tauri/target/
+/src-tauri/gen/
+
+# Local computer-vision models and generated media
+*.pt
+*.onnx
+*.engine
+*.mp4
+*.mov
+*.mkv
+
+# Local databases and runtime state
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+# Environment files and logs
+.env
+.env.*
+!.env.example
+*.log
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
