@@ -2,7 +2,10 @@ use chrono::Utc;
 use directories::{ProjectDirs, UserDirs};
 use rusqlite::{params, Connection};
 use serde::Serialize;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -19,6 +22,7 @@ pub enum StorageError {
 }
 
 pub struct AppPaths {
+    pub data_directory: PathBuf,
     pub database_path: PathBuf,
     pub replay_directory: PathBuf,
 }
@@ -37,6 +41,7 @@ pub fn resolve_app_paths() -> Result<AppPaths, StorageError> {
     fs::create_dir_all(&replay_directory)?;
 
     Ok(AppPaths {
+        data_directory: data_directory.clone(),
         database_path: data_directory.join("pocket-faker.sqlite3"),
         replay_directory,
     })
@@ -158,7 +163,7 @@ impl Database {
     pub fn create_session(
         &self,
         title: Option<String>,
-        replay_root: &PathBuf,
+        replay_root: &Path,
     ) -> Result<SessionSummary, StorageError> {
         let id = Uuid::new_v4().to_string();
         let started_at = Utc::now().to_rfc3339();
@@ -187,6 +192,15 @@ impl Database {
         let connection = self.open()?;
         connection.execute(
             "UPDATE sessions SET status = 'completed', ended_at = ?1 WHERE id = ?2",
+            params![Utc::now().to_rfc3339(), session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn fail_session(&self, session_id: &str) -> Result<(), StorageError> {
+        let connection = self.open()?;
+        connection.execute(
+            "UPDATE sessions SET status = 'failed', ended_at = ?1 WHERE id = ?2",
             params![Utc::now().to_rfc3339(), session_id],
         )?;
         Ok(())

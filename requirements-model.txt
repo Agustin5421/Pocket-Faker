@@ -1,0 +1,7 @@
+ultralytics==8.3.115
+onnx>=1.17,<2
+onnxruntime>=1.20
+onnxscript>=0.4
+onnxslim>=0.1.71
+numpy>=1.23,<=2.1.1
+

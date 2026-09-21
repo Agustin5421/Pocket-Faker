@@ -1,6 +1,8 @@
 # Frontend dependencies and build output
 /node_modules/
 /dist/
+/.venv/
+/.model-tools/
 
 # Rust and Tauri build output
 /src-tauri/target/
@@ -9,6 +11,7 @@
 # Local computer-vision models and generated media
 *.pt
 *.onnx
+*.onnx.data
 *.engine
 *.mp4
 *.mov
