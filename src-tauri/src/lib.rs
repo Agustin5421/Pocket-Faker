@@ -1,4 +1,5 @@
 mod capture;
+mod gameplay;
 mod inference;
 mod pipeline;
 mod storage;
@@ -95,12 +96,17 @@ fn start_capture(
     app: AppHandle,
     source_id: String,
     confidence: f32,
+    gameplay_confidence: f32,
     frames_per_second: u32,
     state: State<'_, AppState>,
 ) -> Result<pipeline::PipelineStatus, String> {
-    state
-        .pipeline
-        .start(app, source_id, confidence, frames_per_second)
+    state.pipeline.start(
+        app,
+        source_id,
+        confidence,
+        gameplay_confidence,
+        frames_per_second,
+    )
 }
 
 #[tauri::command]

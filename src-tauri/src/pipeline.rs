@@ -1,5 +1,6 @@
 use crate::{
     capture::{self, CaptureSource},
+    gameplay::AatroxDetector,
     inference::{Detection, YoloDetector},
     storage::Database,
 };
@@ -25,6 +26,7 @@ pub struct PipelineStatus {
     pub phase: String,
     pub running: bool,
     pub model_loaded: bool,
+    pub gameplay_model_loaded: bool,
     pub source: Option<CaptureSource>,
     pub session_id: Option<String>,
     pub message: Option<String>,
@@ -36,6 +38,7 @@ impl Default for PipelineStatus {
             phase: "idle".to_string(),
             running: false,
             model_loaded: false,
+            gameplay_model_loaded: false,
             source: None,
             session_id: None,
             message: None,
@@ -54,6 +57,12 @@ pub struct ModelInfo {
     pub runtime_size_bytes: Option<u64>,
     pub input_size: u32,
     pub execution_provider: &'static str,
+    pub gameplay_runtime_path: String,
+    pub gameplay_runtime_exists: bool,
+    pub gameplay_runtime_size_bytes: Option<u64>,
+    pub gameplay_input_width: u32,
+    pub gameplay_input_height: u32,
+    pub gameplay_execution_provider: &'static str,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -61,14 +70,18 @@ pub struct ModelInfo {
 pub struct CaptureFrameEvent {
     pub session_id: String,
     pub frame_number: u64,
+    pub frame_width: u32,
+    pub frame_height: u32,
     pub captured_at: String,
     pub source: CaptureSource,
     pub full_frame_data_url: String,
     pub minimap_data_url: String,
     pub detections: Vec<Detection>,
+    pub gameplay_detections: Vec<Detection>,
     pub mean_confidence: f32,
     pub capture_ms: f64,
     pub inference_ms: f64,
+    pub gameplay_inference_ms: f64,
 }
 
 struct PipelineWorker {
@@ -124,6 +137,7 @@ pub struct PipelineController {
     replay_directory: PathBuf,
     source_model_path: PathBuf,
     runtime_model_path: PathBuf,
+    gameplay_model_path: PathBuf,
     model_cache_directory: PathBuf,
 }
 
@@ -141,6 +155,7 @@ impl PipelineController {
             replay_directory,
             source_model_path: project_directory.join("yolo11x-minimap.pt"),
             runtime_model_path: project_directory.join("yolo11x-minimap.onnx"),
+            gameplay_model_path: project_directory.join("models/aatrox-grid-v1.onnx"),
             model_cache_directory,
         }
     }
@@ -166,6 +181,12 @@ impl PipelineController {
             } else {
                 "ONNX Runtime CPU"
             },
+            gameplay_runtime_path: self.gameplay_model_path.display().to_string(),
+            gameplay_runtime_exists: self.gameplay_model_path.is_file(),
+            gameplay_runtime_size_bytes: file_size(&self.gameplay_model_path),
+            gameplay_input_width: crate::gameplay::INPUT_WIDTH,
+            gameplay_input_height: crate::gameplay::INPUT_HEIGHT,
+            gameplay_execution_provider: "ONNX Runtime CPU",
         }
     }
 
@@ -174,6 +195,7 @@ impl PipelineController {
         app: AppHandle,
         source_id: String,
         confidence: f32,
+        gameplay_confidence: f32,
         frames_per_second: u32,
     ) -> Result<PipelineStatus, String> {
         let mut worker_slot = self.worker.lock().map_err(|error| error.to_string())?;
@@ -192,6 +214,12 @@ impl PipelineController {
             return Err(format!(
                 "runtime model not found: {}",
                 self.runtime_model_path.display()
+            ));
+        }
+        if !self.gameplay_model_path.is_file() {
+            return Err(format!(
+                "Aatrox runtime model not found: {}",
+                self.gameplay_model_path.display()
             ));
         }
         if !capture::capture_permission_status().granted {
@@ -218,9 +246,10 @@ impl PipelineController {
             phase: "loading-model".to_string(),
             running: true,
             model_loaded: false,
+            gameplay_model_loaded: false,
             source: Some(source.clone()),
             session_id: Some(session.id.clone()),
-            message: Some("Loading YOLO minimap model".to_string()),
+            message: Some("Loading minimap and Aatrox models".to_string()),
         };
         self.set_status(&app, initial_status.clone());
 
@@ -228,11 +257,13 @@ impl PipelineController {
         let worker_status = self.status.clone();
         let database_path = self.database_path.clone();
         let model_path = self.runtime_model_path.clone();
+        let gameplay_model_path = self.gameplay_model_path.clone();
         let cache_directory = self.model_cache_directory.clone();
         let session_id = session.id;
         let worker_source = source;
         let target_fps = frames_per_second.clamp(1, 10);
         let threshold = confidence.clamp(0.05, 0.95);
+        let gameplay_threshold = gameplay_confidence.clamp(0.05, 0.95);
         let worker_app = app.clone();
 
         let join = thread::spawn(move || {
@@ -244,8 +275,10 @@ impl PipelineController {
                 session_id.clone(),
                 replay_path,
                 model_path,
+                gameplay_model_path,
                 cache_directory,
                 threshold,
+                gameplay_threshold,
                 target_fps,
             );
             let database = Database::new(database_path);
@@ -260,6 +293,7 @@ impl PipelineController {
                             phase: "idle".to_string(),
                             running: false,
                             model_loaded: false,
+                            gameplay_model_loaded: false,
                             source: None,
                             session_id: Some(session_id),
                             message: Some("Capture stopped".to_string()),
@@ -276,6 +310,7 @@ impl PipelineController {
                             phase: "error".to_string(),
                             running: false,
                             model_loaded: false,
+                            gameplay_model_loaded: false,
                             source: None,
                             session_id: Some(session_id),
                             message: Some(error),
@@ -321,8 +356,10 @@ fn run_pipeline(
     session_id: String,
     replay_path: PathBuf,
     model_path: PathBuf,
+    gameplay_model_path: PathBuf,
     cache_directory: PathBuf,
     confidence: f32,
+    gameplay_confidence: f32,
     frames_per_second: u32,
 ) -> Result<(), String> {
     fs::create_dir_all(&cache_directory).map_err(|error| error.to_string())?;
@@ -332,6 +369,8 @@ fn run_pipeline(
         File::create(replay_path.join("detections.jsonl")).map_err(|error| error.to_string())?,
     );
     let mut detector = YoloDetector::load(&model_path, &cache_directory)?;
+    let mut gameplay_detector =
+        AatroxDetector::load(&gameplay_model_path, &cache_directory.join("aatrox"))?;
     let target = capture::find_target(&source.id, frames_per_second)?;
     let replay_writer = ReplayWriter::start();
     update_status(
@@ -341,9 +380,10 @@ fn run_pipeline(
             phase: "capturing".to_string(),
             running: true,
             model_loaded: true,
+            gameplay_model_loaded: true,
             source: Some(source.clone()),
             session_id: Some(session_id.clone()),
-            message: Some("Capture and minimap inference active".to_string()),
+            message: Some("Capture, minimap and Aatrox inference active".to_string()),
         },
     );
 
@@ -357,6 +397,7 @@ fn run_pipeline(
             let capture_ms = capture_started_at.elapsed().as_secs_f64() * 1_000.0;
             let minimap = capture::crop_minimap(&full_frame);
             let inference = detector.infer(&minimap, confidence)?;
+            let gameplay_inference = gameplay_detector.infer(&full_frame, gameplay_confidence)?;
             let captured_at = Utc::now().to_rfc3339();
             let frame_file_name = format!("frame-{frame_number:08}.jpg");
             let full_frame_data_url = capture::encode_preview_data_url(&full_frame, 960)?;
@@ -374,14 +415,18 @@ fn run_pipeline(
             let event = CaptureFrameEvent {
                 session_id: session_id.clone(),
                 frame_number,
+                frame_width: full_frame.width(),
+                frame_height: full_frame.height(),
                 captured_at: captured_at.clone(),
                 source: source.clone(),
                 full_frame_data_url,
                 minimap_data_url,
                 detections: inference.detections,
+                gameplay_detections: gameplay_inference.detections,
                 mean_confidence,
                 capture_ms,
                 inference_ms: inference.elapsed_ms,
+                gameplay_inference_ms: gameplay_inference.elapsed_ms,
             };
             let recording_queued = replay_writer.queue(ReplayFrame {
                 image: full_frame,
@@ -390,12 +435,16 @@ fn run_pipeline(
             let recorded_event = serde_json::json!({
                 "sessionId": event.session_id,
                 "frameNumber": event.frame_number,
+                "frameWidth": event.frame_width,
+                "frameHeight": event.frame_height,
                 "capturedAt": captured_at,
                 "file": recording_queued.then(|| format!("frames/{frame_file_name}")),
                 "recordingDropped": !recording_queued,
                 "captureMs": capture_ms,
                 "inferenceMs": event.inference_ms,
                 "detections": event.detections,
+                "gameplayInferenceMs": event.gameplay_inference_ms,
+                "gameplayDetections": event.gameplay_detections,
             });
             serde_json::to_writer(&mut event_log, &recorded_event)
                 .map_err(|error| error.to_string())?;

@@ -73,17 +73,17 @@ export async function requestCapturePermission() {
 export async function getModelInfo() {
   return isDesktopRuntime()
     ? invoke('get_model_info')
-    : { sourceExists: false, runtimeExists: false, inputSize: 256, executionProvider: 'Desktop only' }
+    : { sourceExists: false, runtimeExists: false, gameplayRuntimeExists: false, inputSize: 256, executionProvider: 'Desktop only' }
 }
 
 export async function getPipelineStatus() {
   return isDesktopRuntime()
     ? invoke('get_pipeline_status')
-    : { phase: 'idle', running: false, modelLoaded: false, source: null, sessionId: null }
+    : { phase: 'idle', running: false, modelLoaded: false, gameplayModelLoaded: false, source: null, sessionId: null }
 }
 
-export async function startCapture(sourceId, confidence, framesPerSecond) {
-  return desktopOnly('start_capture', { sourceId, confidence, framesPerSecond })
+export async function startCapture(sourceId, confidence, gameplayConfidence, framesPerSecond) {
+  return desktopOnly('start_capture', { sourceId, confidence, gameplayConfidence, framesPerSecond })
 }
 
 export async function stopCapture() {

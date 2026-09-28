@@ -55,6 +55,7 @@ function App() {
   const [frame, setFrame] = useState(null)
   const [pipelineError, setPipelineError] = useState('')
   const [confidence, setConfidence] = useState(0.35)
+  const [gameplayConfidence, setGameplayConfidence] = useState(0.5)
   const [framesPerSecond, setFramesPerSecond] = useState(2)
   const [capturePermission, setCapturePermission] = useState({ supported: false, granted: false, requestedThisLaunch: false, requiresRestart: false })
 
@@ -129,7 +130,7 @@ function App() {
       } else {
         if (!selectedSourceId) throw new Error('Select a capture source in Settings first')
         setFrame(null)
-        setPipelineStatus(await startCapture(selectedSourceId, confidence, framesPerSecond))
+        setPipelineStatus(await startCapture(selectedSourceId, confidence, gameplayConfidence, framesPerSecond))
       }
     } catch (reason) {
       setPipelineError(String(reason))
@@ -138,7 +139,7 @@ function App() {
 
   const vision = {
     appInfo, sources, selectedSourceId, setSelectedSourceId, modelInfo, pipelineStatus,
-    frame, pipelineError, confidence, setConfidence, framesPerSecond, setFramesPerSecond,
+    frame, pipelineError, confidence, setConfidence, gameplayConfidence, setGameplayConfidence, framesPerSecond, setFramesPerSecond,
     capturePermission, refreshSources, handleCapture,
   }
 
@@ -198,16 +199,22 @@ function LiveView({ onOpenPrompts, onOpenSettings, vision }) {
       <div className="panel-head">
         <div><span className="eyebrow">PRIMARY INPUT</span><h2>GAMEPLAY FEED <small>01</small></h2></div>
         <div className="feed-controls">
-          <button className="toggle" disabled><Eye size={14}/> MINIMAP DETECTIONS <i /></button>
+          <span className="raw-output-badge">AATROX · RAW MODEL OUTPUT</span>
           <button className="icon-button" onClick={onOpenSettings} aria-label="Open capture settings"><SlidersHorizontal size={15}/></button>
         </div>
       </div>
       <div className={`game-window ${frame ? 'active-capture' : 'empty-capture'}`}>
-        {frame ? <img className="capture-frame" src={frame.fullFrameDataUrl} alt="Current captured League of Legends window" /> :
+        {frame ? <svg className="gameplay-frame" viewBox={`0 0 ${frame.frameWidth} ${frame.frameHeight}`} role="img" aria-label="Captured League of Legends frame with Aatrox detections">
+          <image href={frame.fullFrameDataUrl} width={frame.frameWidth} height={frame.frameHeight} />
+          {(frame.gameplayDetections || []).map((detection) => <g key={detection.id}>
+            <rect className="gameplay-detection-box" x={detection.x * frame.frameWidth} y={detection.y * frame.frameHeight} width={detection.width * frame.frameWidth} height={detection.height * frame.frameHeight} />
+            <text className="gameplay-detection-label" fontSize={Math.max(18, frame.frameWidth / 65)} x={detection.x * frame.frameWidth} y={Math.max(18, detection.y * frame.frameHeight - 7)}>{detection.label} {Math.round(detection.confidence * 100)}%</text>
+          </g>)}
+        </svg> :
           <EmptyState icon={Gamepad2} title={running ? 'Starting capture…' : 'No captured frame'} text={source ? 'Press start to load the model and begin recording.' : 'Choose the League of Legends window in Settings.'} compact />}
         <div className="feed-corners"><i/><i/><i/><i/></div>
         <div className={`rec-chip ${running ? '' : 'idle'}`}><span /> {running ? 'RECORDING LOCALLY' : 'NOT RECORDING'}</div>
-        <div className="model-chip">{pipelineStatus.modelLoaded ? 'YOLO ACTIVE' : modelInfo?.runtimeExists ? 'MODEL READY' : 'MODEL NOT EXPORTED'}</div>
+        <div className="model-chip">{pipelineStatus.gameplayModelLoaded ? 'AATROX ACTIVE' : modelInfo?.gameplayRuntimeExists ? 'AATROX READY' : 'AATROX MODEL MISSING'}</div>
         <button className="pause-button" onClick={handleCapture} disabled={!running && !selectedSourceId} aria-label={running ? 'Stop capture' : 'Start capture'}>
           {running ? <span className="stop-symbol" /> : <Play size={19} fill="currentColor"/>}
         </button>
@@ -218,6 +225,7 @@ function LiveView({ onOpenPrompts, onOpenSettings, vision }) {
         <DataField label="RESOLUTION" value={source ? `${source.width} × ${source.height}` : undefined} />
         <DataField label="FRAME" value={frame ? `#${frame.frameNumber}` : undefined} />
         <DataField label="CAPTURE LATENCY" value={frame ? `${frame.captureMs.toFixed(1)} ms` : undefined} />
+        <DataField label="AATROX" value={frame ? `${(frame.gameplayDetections || []).length} · ${frame.gameplayInferenceMs.toFixed(1)} ms` : undefined} />
       </div>
     </section>
 
@@ -251,10 +259,10 @@ function LiveView({ onOpenPrompts, onOpenSettings, vision }) {
       <div className="panel-head compact"><div><span className="eyebrow">SYSTEM HEALTH</span><h2>RUNTIME</h2></div><Activity size={16} className="muted-icon"/></div>
       <div className="metrics">
         <Metric icon={Gauge} label="CAPTURE" value={frame ? frame.captureMs.toFixed(1) : undefined} unit="ms" />
-        <Metric icon={Eye} label="ENTITIES" value={frame ? frame.detections.length : undefined} unit="found" />
-        <Metric icon={Zap} label="INFERENCE" value={frame ? frame.inferenceMs.toFixed(1) : undefined} unit="ms" />
+        <Metric icon={Eye} label="AATROX" value={frame ? (frame.gameplayDetections || []).length : undefined} unit="found" />
+        <Metric icon={Zap} label="AATROX MODEL" value={frame ? frame.gameplayInferenceMs.toFixed(1) : undefined} unit="ms" />
       </div>
-      <div className={`runtime-foot ${running ? '' : 'inactive'}`}><Wifi size={13}/><span>{running ? 'CAPTURE + YOLO PIPELINE ACTIVE' : 'PIPELINES NOT STARTED'}</span><b>{modelInfo?.executionProvider || '—'}</b></div>
+      <div className={`runtime-foot ${running ? '' : 'inactive'}`}><Wifi size={13}/><span>{running ? 'CAPTURE + 2 MODELS ACTIVE' : 'PIPELINES NOT STARTED'}</span><b>{modelInfo?.executionProvider || '—'}</b></div>
     </section>
   </div>
 }
@@ -374,7 +382,7 @@ function SettingsView({ vision }) {
   const config = EMPTY_CONFIG
   const {
     appInfo, sources, selectedSourceId, setSelectedSourceId, modelInfo, pipelineStatus,
-    confidence, setConfidence, framesPerSecond, setFramesPerSecond, refreshSources,
+    confidence, setConfidence, gameplayConfidence, setGameplayConfidence, framesPerSecond, setFramesPerSecond, refreshSources,
   } = vision
   const selectedSource = sources.find((source) => String(source.id) === String(selectedSourceId))
   const windowSources = sources.filter((source) => source.sourceType === 'window')
@@ -407,7 +415,15 @@ function SettingsView({ vision }) {
         <PipelineNote label="Runtime artifact" value={modelInfo?.runtimeExists ? `${formatBytes(modelInfo.runtimeSizeBytes)} · loaded only when capture starts` : 'Run the model export script first'} active={Boolean(modelInfo?.runtimeExists)} />
       </SettingsSection>
 
-      <SettingsSection icon={BrainCircuit} index="03" title="Coach Agent" description="Define how the language agent consumes match state and delivers real-time guidance." status="Not connected">
+      <SettingsSection icon={Crosshair} index="03" title="Gameplay Model · Aatrox" description="Detect Aatrox on the complete game frame; no minimap crop is used." status={pipelineStatus.gameplayModelLoaded ? 'Loaded' : modelInfo?.gameplayRuntimeExists ? 'Ready on demand' : 'Export required'} active={Boolean(modelInfo?.gameplayRuntimeExists)}>
+        <Field label="Runtime model" help={modelInfo?.gameplayRuntimePath || 'Export the trained model first.'}><select value={modelInfo?.gameplayRuntimeExists ? 'aatrox-grid-v1.onnx' : ''} disabled><option value="">Not available</option>{modelInfo?.gameplayRuntimeExists && <option value="aatrox-grid-v1.onnx">aatrox-grid-v1.onnx</option>}</select></Field>
+        <Field label="Input size"><select value={modelInfo?.gameplayInputWidth ? `${modelInfo.gameplayInputWidth} × ${modelInfo.gameplayInputHeight}` : ''} disabled><option value="">Not available</option>{modelInfo?.gameplayInputWidth && <option value={`${modelInfo.gameplayInputWidth} × ${modelInfo.gameplayInputHeight}`}>{modelInfo.gameplayInputWidth} × {modelInfo.gameplayInputHeight}</option>}</select></Field>
+        <Field label="Compute device"><select value={modelInfo?.gameplayExecutionProvider || ''} disabled><option value="">Not available</option>{modelInfo?.gameplayExecutionProvider && <option value={modelInfo.gameplayExecutionProvider}>{modelInfo.gameplayExecutionProvider}</option>}</select></Field>
+        <RangeField label="Aatrox confidence" value={Math.round(gameplayConfidence * 100)} suffix="%" disabled={pipelineStatus.running || !modelInfo?.gameplayRuntimeExists} onChange={(value) => setGameplayConfidence(value / 100)} help="Separate threshold from the minimap. Higher values reduce false positives but miss more Aatrox frames." />
+        <PipelineNote label="Runtime artifact" value={modelInfo?.gameplayRuntimeExists ? `${formatBytes(modelInfo.gameplayRuntimeSizeBytes)} · loaded when capture starts` : 'Run scripts/export_aatrox.py first'} active={Boolean(modelInfo?.gameplayRuntimeExists)} />
+      </SettingsSection>
+
+      <SettingsSection icon={BrainCircuit} index="04" title="Coach Agent" description="Define how the language agent consumes match state and delivers real-time guidance." status="Not connected">
         <EmptySelect label="Agent model" help="No coach provider has been configured." />
         <EmptySelect label="Response trigger" />
         <EmptySelect label="Response length" />

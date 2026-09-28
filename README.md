@@ -10,6 +10,8 @@ Aplicación de escritorio local para desarrollar, observar y evaluar un agente d
 - **SQLite embebido** almacena datos estructurados sin servidor ni Docker.
 - **Sistema de archivos local** almacena los replays fuera de la base de datos.
 - **ONNX Runtime** ejecuta el modelo YOLO bajo demanda. En macOS intenta usar CoreML y conserva CPU como fallback.
+- El detector de **Aatrox** usa un segundo modelo ONNX sobre el frame completo del juego, con un umbral independiente. No usa el recorte del minimapa.
+- El ONNX de Aatrox se ejecuta en CPU por ahora: CoreML rechaza una operación de padding del modelo exportado. El minimapa conserva su configuración CoreML con fallback.
 - **ScreenCaptureKit** mantiene un stream persistente de la ventana o display en macOS, incluso al cambiar de ventana o Space.
 - **xcap** queda aislado como adaptador de captura para futuros builds en otros sistemas operativos.
 
@@ -31,6 +33,19 @@ python3 -m venv .model-tools
 
 Esto genera `yolo11x-minimap.onnx` y, según la versión de ONNX, `yolo11x-minimap.onnx.data`. Ambos son artefactos locales ignorados por Git.
 
+Exportá también el modelo de Aatrox entrenado en `league-scrapper`:
+
+```bash
+# Se puede usar el entorno Python donde se entrenó el modelo.
+python -m pip install -r requirements-gameplay-export.txt
+python scripts/export_aatrox.py --model /ruta/a/league-scrapper/artifacts/aatrox-grid-v1/best.keras
+```
+
+Esto genera `models/aatrox-grid-v1.onnx` (ignorado por Git). La app necesita
+ambos ONNX para iniciar el pipeline. Para usar otro directorio de modelos,
+`POCKET_FAKER_MODEL_DIR` debe apuntar a una carpeta con
+`yolo11x-minimap.onnx` y `models/aatrox-grid-v1.onnx`.
+
 ### 2. Levantar la aplicación
 
 ```bash
@@ -45,7 +60,17 @@ En macOS, Pocket Faker solicita automáticamente una sola vez el permiso de grab
 3. Ajustá FPS y confianza.
 4. Volvé a `Live` y presioná el botón central para iniciar o detener la sesión.
 
-El modelo y el stream de ScreenCaptureKit se cargan al iniciar la captura. Los frames se comprimen y escriben en un proceso de fondo para no frenar la vista en vivo; si el disco no logra seguir el ritmo, `detections.jsonl` marca ese frame con `recordingDropped: true` en vez de bloquear el pipeline. El panel del minimapa muestra el recorte inferior derecho, el output crudo de YOLO y sus bounding boxes; no genera interpretaciones tácticas.
+Los dos modelos y el stream de ScreenCaptureKit se cargan al iniciar la captura.
+Cada frame completo pasa al detector de Aatrox; sólo el recorte inferior derecho
+pasa a YOLO. Los frames se comprimen y escriben en un proceso de fondo para no
+frenar la vista en vivo; si el disco no logra seguir el ritmo,
+`detections.jsonl` marca ese frame con `recordingDropped: true` en vez de
+bloquear el pipeline. La vista principal dibuja la caja de Aatrox cuando pasa
+su umbral. El panel del minimapa conserva sus propias detecciones.
+
+El modelo Aatrox es experimental: en validación sintética logró F1@IoU0,5 de
+0,53. Un umbral de 0,50 reduce falsos positivos a costa de más omisiones.
+Todavía no se ha validado con juego en vivo.
 
 Para abrir únicamente la interfaz en el navegador:
 
@@ -65,5 +90,5 @@ En macOS, SQLite se crea dentro del directorio estándar de Application Support.
 ## Alcance actual
 
 - El minimapa se obtiene como un recorte cuadrado del 30% de la altura, anclado abajo a la derecha. Esta estrategia es explícita y podrá sustituirse por calibración cuando se soporten más resoluciones o layouts.
-- La captura y YOLO están integrados; el modelo de gameplay, el seguimiento entre frames y el coach todavía permanecen desconectados.
+- La captura, YOLO del minimapa y el detector de Aatrox del frame completo están conectados. El seguimiento entre frames y el coach todavía permanecen desconectados.
 - La interfaz web aislada (`npm run dev`) sirve para revisar el layout, pero el descubrimiento de ventanas, SQLite y la inferencia sólo existen dentro de Tauri.
