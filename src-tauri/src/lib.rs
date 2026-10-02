@@ -67,8 +67,11 @@ fn finish_session(session_id: String, state: State<'_, AppState>) -> Result<(), 
 }
 
 #[tauri::command]
-fn list_capture_sources() -> Result<Vec<capture::CaptureSource>, String> {
-    capture::list_sources()
+async fn list_capture_sources() -> Result<Vec<capture::CaptureSource>, String> {
+    // ScreenCaptureKit completion handlers need the main run loop to stay free.
+    tauri::async_runtime::spawn_blocking(capture::list_sources)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -82,6 +85,13 @@ fn request_capture_permission() -> capture::CapturePermissionStatus {
 }
 
 #[tauri::command]
+async fn open_capture_permission_settings() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(capture::open_capture_permission_settings)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 fn get_model_info(state: State<'_, AppState>) -> pipeline::ModelInfo {
     state.pipeline.model_info()
 }
@@ -92,7 +102,7 @@ fn get_pipeline_status(state: State<'_, AppState>) -> pipeline::PipelineStatus {
 }
 
 #[tauri::command]
-fn start_capture(
+async fn start_capture(
     app: AppHandle,
     source_id: String,
     confidence: f32,
@@ -100,13 +110,18 @@ fn start_capture(
     frames_per_second: u32,
     state: State<'_, AppState>,
 ) -> Result<pipeline::PipelineStatus, String> {
-    state.pipeline.start(
-        app,
-        source_id,
-        confidence,
-        gameplay_confidence,
-        frames_per_second,
-    )
+    let pipeline = state.pipeline.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        pipeline.start(
+            app,
+            source_id,
+            confidence,
+            gameplay_confidence,
+            frames_per_second,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -180,6 +195,7 @@ pub fn run() {
             list_capture_sources,
             get_capture_permission_status,
             request_capture_permission,
+            open_capture_permission_settings,
             get_model_info,
             get_pipeline_status,
             start_capture,

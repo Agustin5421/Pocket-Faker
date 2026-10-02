@@ -36,7 +36,8 @@ pub fn capture_permission_status() -> CapturePermissionStatus {
         supported: cfg!(target_os = "macos"),
         granted,
         requested_this_launch,
-        requires_restart: cfg!(target_os = "macos") && requested_this_launch && !granted,
+        // A denied preflight does not tell us whether macOS requires a restart.
+        requires_restart: false,
     }
 }
 
@@ -44,12 +45,32 @@ pub fn request_capture_permission() -> CapturePermissionStatus {
     #[cfg(target_os = "macos")]
     {
         let access = core_graphics::access::ScreenCaptureAccess;
-        if !access.preflight() && !PERMISSION_REQUESTED_THIS_LAUNCH.swap(true, Ordering::Relaxed) {
+        let needs_permission = !access.preflight();
+        if needs_permission {
+            PERMISSION_REQUESTED_THIS_LAUNCH.store(true, Ordering::Relaxed);
             let _ = access.request();
         }
     }
 
     capture_permission_status()
+}
+
+pub fn open_capture_permission_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("/usr/bin/open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        .status()
+        .map_err(|error| error.to_string())
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err("Could not open Screen Recording settings".to_string())
+            }
+        });
+    #[cfg(not(target_os = "macos"))]
+    let result = Ok(());
+    result
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -185,7 +206,7 @@ fn capture_source(window: &Window) -> Result<CaptureSource, String> {
         title,
         width: window.width().map_err(|error| error.to_string())?,
         height: window.height().map_err(|error| error.to_string())?,
-        is_league: league_name.contains("league of legends"),
+        is_league: league_name.contains("league"),
     })
 }
 

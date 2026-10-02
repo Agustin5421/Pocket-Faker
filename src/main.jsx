@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   Activity, Bell, Bot, Box, BrainCircuit, ChevronDown, ChevronRight, CircleDot,
@@ -8,7 +8,7 @@ import {
 import {
   getAppInfo, getCapturePermissionStatus, getModelInfo, getPipelineStatus,
   listCaptureSources, listSessions, onCaptureFrame, onPipelineError, onPipelineStatus,
-  requestCapturePermission, startCapture, stopCapture,
+  openCapturePermissionSettings, requestCapturePermission, startCapture, stopCapture,
 } from './desktop'
 import './styles.css'
 
@@ -59,6 +59,9 @@ function App() {
   const [framesPerSecond, setFramesPerSecond] = useState(2)
   const [capturePermission, setCapturePermission] = useState({ supported: false, granted: false, requestedThisLaunch: false, requiresRestart: false })
 
+  const sourceRefreshInFlight = useRef(false)
+  const [requestingPermission, setRequestingPermission] = useState(false)
+
   useEffect(() => {
     getAppInfo()
       .then((info) => {
@@ -71,42 +74,81 @@ function App() {
       })
   }, [])
 
-  const refreshSources = async () => {
-    try {
-      const permission = await getCapturePermissionStatus()
-      setCapturePermission(permission)
-      if (permission.supported && !permission.granted) {
-        setSources([])
-        setSelectedSourceId('')
-        return
+  const refreshSources = useCallback(async () => {
+    if (sourceRefreshInFlight.current === false) {
+      sourceRefreshInFlight.current = true
+      try {
+        const permission = await getCapturePermissionStatus()
+        setCapturePermission(permission)
+        const canDiscover = permission.supported === false || permission.granted
+        const available = canDiscover ? await listCaptureSources() : []
+        const discovered = available.filter((source) =>
+          source.sourceType === 'window' &&
+          `${source.appName || ''} ${source.title || ''}`.toLowerCase().includes('league'),
+        )
+        setSources(discovered)
+        setPipelineError('')
+        setSelectedSourceId((current) => {
+          const currentExists = discovered.some((source) => String(source.id) === String(current))
+          const preferred = discovered.find((source) => source.isLeague) || discovered[0]
+          return currentExists ? current : preferred ? String(preferred.id) : ''
+        })
+      } catch (reason) {
+        setPipelineError(String(reason))
+      } finally {
+        sourceRefreshInFlight.current = false
       }
-      const discovered = await listCaptureSources()
-      setSources(discovered)
-      setPipelineError('')
-      setSelectedSourceId((current) => {
-        if (discovered.some((source) => String(source.id) === String(current))) return current
-        const preferred = discovered.find((source) => source.isLeague) || discovered[0]
-        return preferred ? String(preferred.id) : ''
-      })
+    }
+  }, [])
+
+  const handlePermissionRequest = async () => {
+    setRequestingPermission(true)
+    try {
+      const permission = await requestCapturePermission()
+      setCapturePermission(permission)
+      if (permission.supported && permission.granted === false) {
+        await openCapturePermissionSettings()
+      }
+      await refreshSources()
+    } catch (reason) {
+      setPipelineError(String(reason))
+    } finally {
+      setRequestingPermission(false)
+    }
+  }
+
+  const handlePermissionSettings = async () => {
+    try {
+      await openCapturePermissionSettings()
     } catch (reason) {
       setPipelineError(String(reason))
     }
   }
 
   useEffect(() => {
+    const refresh = () => { refreshSources().catch((reason) => setPipelineError(String(reason))) }
+    window.addEventListener('focus', refresh)
+    // Permission dialogs and System Settings can grant access after the request resolves.
+    const timer = capturePermission.supported && capturePermission.granted === false
+      ? window.setInterval(refresh, 2000)
+      : null
+    return () => {
+      window.removeEventListener('focus', refresh)
+      if (timer !== null) window.clearInterval(timer)
+    }
+  }, [capturePermission.supported, capturePermission.granted, refreshSources])
+
+  useEffect(() => {
     let active = true
     const unlisteners = []
     Promise.all([getModelInfo(), getPipelineStatus(), requestCapturePermission()])
       .then(async ([model, status, permission]) => {
-        if (!active) return
-        const discovered = permission.supported && !permission.granted ? [] : await listCaptureSources()
-        if (!active) return
-        setModelInfo(model)
-        setPipelineStatus(status)
-        setCapturePermission(permission)
-        setSources(discovered)
-        const preferred = discovered.find((source) => source.isLeague) || discovered[0]
-        if (preferred) setSelectedSourceId(String(preferred.id))
+        if (active) {
+          setModelInfo(model)
+          setPipelineStatus(status)
+          setCapturePermission(permission)
+          await refreshSources()
+        }
       })
       .catch((reason) => active && setPipelineError(String(reason)))
 
@@ -120,7 +162,7 @@ function App() {
       active = false
       unlisteners.forEach((unlisten) => unlisten())
     }
-  }, [])
+  }, [refreshSources])
 
   const handleCapture = async () => {
     try {
@@ -140,7 +182,7 @@ function App() {
   const vision = {
     appInfo, sources, selectedSourceId, setSelectedSourceId, modelInfo, pipelineStatus,
     frame, pipelineError, confidence, setConfidence, gameplayConfidence, setGameplayConfidence, framesPerSecond, setFramesPerSecond,
-    capturePermission, refreshSources, handleCapture,
+    capturePermission, requestingPermission, handlePermissionRequest, handlePermissionSettings, refreshSources, handleCapture,
   }
 
   return (
@@ -385,19 +427,17 @@ function SettingsView({ vision }) {
     confidence, setConfidence, gameplayConfidence, setGameplayConfidence, framesPerSecond, setFramesPerSecond, refreshSources,
   } = vision
   const selectedSource = sources.find((source) => String(source.id) === String(selectedSourceId))
-  const windowSources = sources.filter((source) => source.sourceType === 'window')
-  const displaySources = sources.filter((source) => source.sourceType === 'display')
 
   return <div className="settings-page page-enter">
     <div className="settings-titlebar">
       <PageIntro kicker="LOCAL ENVIRONMENT" title="SYSTEM SETTINGS" text="Configure the local capture and inference pipeline. Capture selections apply immediately." icon={Settings}/>
-      <div className="settings-actions"><span className="save-state">SESSION CONFIGURATION</span><button className="secondary-action" onClick={refreshSources}>Refresh windows</button><button className="primary-action" disabled>Save as default</button></div>
-      {vision.capturePermission.supported && !vision.capturePermission.granted && <div className="permission-warning"><ShieldAlert size={18}/><div><b>Screen Recording permission required</b><span>macOS was asked once for access. Enable Pocket Faker in Privacy &amp; Security → Screen &amp; System Audio Recording, then fully quit and restart the app.</span></div></div>}
+      <div className="settings-actions"><span className="save-state">SESSION CONFIGURATION</span><button className="secondary-action" onClick={refreshSources}>Actualizar ventanas de League</button><button className="primary-action" disabled>Save as default</button></div>
+      {vision.capturePermission.supported && !vision.capturePermission.granted && <div className="permission-warning"><ShieldAlert size={18}/><div><b>Permiso de grabación de pantalla requerido</b><span>Autorice Pocket Faker en Privacidad y seguridad → Grabación de pantalla y audio del sistema. El listado se actualizará automáticamente. Si macOS solicita reiniciar, cierre y vuelva a abrir la aplicación.</span><div className="permission-actions"><button className="primary-action" disabled={vision.requestingPermission} onClick={vision.handlePermissionRequest}>{vision.requestingPermission ? 'Solicitando…' : 'Solicitar permiso'}</button><button className="secondary-action" onClick={vision.handlePermissionSettings}>Abrir ajustes de macOS</button></div></div></div>}
       {vision.pipelineError && <div className="settings-error"><b>Capture discovery error</b><span>{vision.pipelineError}</span></div>}
     </div>
     <div className="settings-stack">
       <SettingsSection icon={Gamepad2} index="01" title="Capture Source" description="Select the game window and define how frames enter the processing pipeline." status={pipelineStatus.running ? 'Capturing' : selectedSource ? 'Ready' : 'Not selected'} active={Boolean(selectedSource)}>
-        <Field label="Application or display" help="Full-screen Metal games may not expose a window on macOS. In that case select the display where League is running."><select value={selectedSourceId} disabled={pipelineStatus.running} onChange={(event) => setSelectedSourceId(event.target.value)}><option value="">Select a capture source</option>{windowSources.length > 0 && <optgroup label="Application windows">{windowSources.map((source) => <option value={source.id} key={source.id}>{source.isLeague ? 'League · ' : ''}{source.appName} — {source.title || 'Untitled'}</option>)}</optgroup>}{displaySources.length > 0 && <optgroup label="Displays (recommended for full-screen games)">{displaySources.map((source) => <option value={source.id} key={source.id}>{source.title} — {source.width} × {source.height}</option>)}</optgroup>}</select></Field>
+        <Field label="Ventana de League of Legends" help="Solo se muestran ventanas cuyo nombre o título contiene “league”, sin distinguir mayúsculas. Si no aparece ninguna, abra el juego y actualice el listado."><select value={selectedSourceId} disabled={pipelineStatus.running} onChange={(event) => setSelectedSourceId(event.target.value)}><option value="">{sources.length > 0 ? 'Seleccione una ventana de League' : 'No se encontraron ventanas de League'}</option>{sources.map((source) => <option value={source.id} key={source.id}>{source.appName} — {source.title || 'Sin título'}</option>)}</select></Field>
         <Field label="Capture method" help="macOS uses a persistent ScreenCaptureKit stream that remains attached when you change windows or Spaces."><select value={selectedSource?.sourceType || 'native'} disabled><option value="native">Native capture</option><option value="window">Application window · ScreenCaptureKit</option><option value="display">Full display · ScreenCaptureKit</option></select></Field>
         <Field label="Display and resolution"><select value={selectedSource ? `${selectedSource.width} × ${selectedSource.height}` : ''} disabled><option value="">Not available</option>{selectedSource && <option value={`${selectedSource.width} × ${selectedSource.height}`}>{selectedSource.width} × {selectedSource.height}</option>}</select></Field>
         <Field label="Target frame rate" help="Kept deliberately low while full frames are recorded locally."><select value={framesPerSecond} disabled={pipelineStatus.running} onChange={(event) => setFramesPerSecond(Number(event.target.value))}>{[1, 2, 5, 10].map((fps) => <option value={fps} key={fps}>{fps} FPS</option>)}</select></Field>

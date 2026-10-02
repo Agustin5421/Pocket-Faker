@@ -2,6 +2,8 @@
 
 Aplicación de escritorio local para desarrollar, observar y evaluar un agente de coaching para League of Legends.
 
+El [documento de contexto del proyecto](docs/contexto-proyecto.md) describe los objetivos, el alcance y la estrategia experimental de la tesis.
+
 ## Arquitectura inicial
 
 - **Tauri 2** contiene la aplicación de escritorio.
@@ -53,10 +55,10 @@ npm install
 npm run desktop:dev
 ```
 
-En macOS, Pocket Faker solicita automáticamente una sola vez el permiso de grabación de pantalla. Si el sistema pide reiniciar la aplicación, cerrala por completo y volvé a ejecutar `npm run desktop:dev`. El permiso puede revisarse en **System Settings → Privacy & Security → Screen & System Audio Recording**.
+En macOS, Pocket Faker solicita el permiso de grabación de pantalla al iniciar. Si se rechaza, use **Settings → Solicitar permiso** para reintentar o **Abrir ajustes de macOS** para autorizarlo desde el sistema. La app vuelve a consultar el permiso mientras está pendiente y actualiza las fuentes al recuperar el foco. Si macOS solicita reiniciar la aplicación, ciérrela por completo y vuelva a ejecutar `npm run desktop:dev`.
 
 1. Abrí League of Legends.
-2. En `Settings → Capture Source`, actualizá las fuentes y seleccioná la ventana de League. Si el juego está en pantalla completa y macOS no expone esa ventana, seleccioná el display donde se ejecuta.
+2. En `Settings → Capture Source`, actualice el listado y seleccione la ventana de League. El selector solo muestra ventanas con “league” en el nombre de la aplicación o en el título, sin distinguir mayúsculas. Si no aparece ninguna, abra el juego; si macOS no expone la ventana en pantalla completa, use el modo ventana o sin bordes.
 3. Ajustá FPS y confianza.
 4. Volvé a `Live` y presioná el botón central para iniciar o detener la sesión.
 

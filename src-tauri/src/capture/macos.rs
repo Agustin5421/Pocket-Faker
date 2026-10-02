@@ -223,7 +223,7 @@ pub fn list_sources() -> Result<Vec<CaptureSource>, String> {
                 title,
                 width: frame.size.width.round().max(1.0) as u32,
                 height: frame.size.height.round().max(1.0) as u32,
-                is_league: league_name.contains("league of legends"),
+                is_league: league_name.contains("league"),
             })
         })
         .collect::<Vec<_>>();

@@ -70,6 +70,10 @@ export async function requestCapturePermission() {
     : { supported: false, granted: false, requestedThisLaunch: false, requiresRestart: false }
 }
 
+export async function openCapturePermissionSettings() {
+  return desktopOnly('open_capture_permission_settings')
+}
+
 export async function getModelInfo() {
   return isDesktopRuntime()
     ? invoke('get_model_info')

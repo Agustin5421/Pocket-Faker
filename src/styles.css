@@ -122,3 +122,5 @@ button:disabled{cursor:not-allowed;opacity:.55}.pulse-dot.offline{background:#9a
 .minimap-preview:not(.empty-minimap) .minimap-image-meta{bottom:8px}
 .section-status:not(.inactive) i{animation:statusPulse 1.6s ease-in-out infinite}
 @keyframes statusPulse{50%{opacity:.35}}
+
+.permission-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
