@@ -124,3 +124,12 @@ button:disabled{cursor:not-allowed;opacity:.55}.pulse-dot.offline{background:#9a
 @keyframes statusPulse{50%{opacity:.35}}
 
 .permission-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+
+.character-timing { padding: 10px 16px; color: var(--text-muted, #8d98a8); font-size: 11px; }
+.gameplay-detection-box.predicted-track { stroke: #e7b45d; stroke-dasharray: 6 4; fill: rgba(231, 180, 93, .1); }
+.character-config-actions { display: flex; align-items: center; gap: 16px; padding: 16px; font-size: 12px; }
+
+.settings-field > input:not([type="range"]) { width: 100%; height: 37px; padding: 0 11px; border: 1px solid #cfd5d0; border-radius: 5px; color: var(--text); background: #fff; font-size: 11px; }
+.settings-field > input:not([type="range"]):focus { outline: 2px solid rgba(47,115,88,.15); border-color: #7ea28f; }
+.settings-field > input:disabled { cursor: not-allowed; color: var(--subtle); background: #f4f5f3; }
+.character-config-actions { grid-column: 1 / -1; padding: 0; }

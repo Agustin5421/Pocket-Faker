@@ -2,11 +2,11 @@
 
 ## Project Structure & Module Organization
 
-Pocket Faker is a League of Legends research prototype. Read `docs/contexto-proyecto.md` for scope and `README.md` for current capabilities. Tracking, action recognition, and coaching remain planned.
+Pocket Faker is a League of Legends research prototype. Read `docs/contexto-proyecto.md` for scope and `README.md` for current capabilities. SAM 3 text tracking is integrated experimentally; checkpoint validation, action recognition, and coaching remain pending.
 
 - `src/main.jsx`: React console and view state; `src/desktop.js`: Tauri commands and event subscriptions; `src/styles.css`: UI styling.
 - `src-tauri/src/`: Rust backend. `capture.rs` and `capture/macos.rs` handle capture; `inference.rs` handles minimap YOLO; `gameplay.rs` handles Aatrox detection; `pipeline.rs` coordinates processing; `storage.rs` manages SQLite sessions.
-- `scripts/`: Python model exporters. `public/` and `src-tauri/icons/`: assets. Rust unit tests live alongside modules.
+- `scripts/`: Python exporters and optional SAM 3 worker. `public/` and `src-tauri/icons/`: assets. Rust unit tests live alongside modules.
 
 ## Build, Test, and Development Commands
 
@@ -35,3 +35,7 @@ History uses imperative subjects, such as `Add Aatrox gameplay detection pipelin
 Models, recordings, databases, and environment files are ignored; keep them out of commits. See README for model export commands and `POCKET_FAKER_MODEL_DIR`. Preserve existing local changes and show explicit unavailable states instead of fabricated detections.
 
 The `caveman` skill is mandatory for every request. Consult its session-catalog location before responding when available; currently `/Users/agustin/.codex/skills/caveman/SKILL.md`. Once read, keep it active throughout the conversation. Default to `full`, preserve technical accuracy, and follow its clarity exceptions. If unavailable, report briefly and remain concise. Explicit user instructions may change its level or disable it.
+
+## Work degree log
+
+For work on the degree project, use the `bitacora-grado` skill at `/Users/agustin/.codex/skills/bitacora-grado/SKILL.md` when available. Read `docs/bitacora/README.md` and keep substantive decisions, research and experiment evidence updated before closing the work block. If the skill is unavailable, follow the existing log format and report that briefly. This log provisionally hosts the new Valorant project's scope definition; it does not change Pocket Faker's League scope. Do not treat proposed autonomous controls as an agreed requirement. When the new repository is established, move the log there and leave a pointer here rather than maintaining two active copies.

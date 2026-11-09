@@ -36,3 +36,9 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Optional SAM 3 runtime and local checkpoints
+/.sam3-venv/
+/models/sam3/
+__pycache__/
+models/

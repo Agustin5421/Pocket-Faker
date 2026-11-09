@@ -77,7 +77,7 @@ export async function openCapturePermissionSettings() {
 export async function getModelInfo() {
   return isDesktopRuntime()
     ? invoke('get_model_info')
-    : { sourceExists: false, runtimeExists: false, gameplayRuntimeExists: false, inputSize: 256, executionProvider: 'Desktop only' }
+    : { sourceExists: false, runtimeExists: false, gameplayRuntimeExists: false, characterModels: [], inputSize: 256, executionProvider: 'Desktop only' }
 }
 
 export async function getPipelineStatus() {
@@ -112,4 +112,32 @@ export function onPipelineStatus(handler) {
 
 export function onPipelineError(handler) {
   return subscribe('pipeline-error', handler)
+}
+
+export const defaultVisionConfig = {
+  version: 1,
+  backend: 'current',
+  pythonPath: 'python3',
+  checkpointPath: '',
+  prompt: 'red armored warrior with a large sword',
+  targetLabel: 'Aatrox (objetivo solicitado)',
+  device: 'mps',
+  maxFps: 1,
+  trackingEnabled: true,
+}
+
+export async function getVisionConfig() {
+  return isDesktopRuntime() ? invoke('get_vision_config') : { ...defaultVisionConfig }
+}
+
+export async function setVisionConfig(config) {
+  return desktopOnly('set_vision_config', { config })
+}
+
+export function onCharacterFrame(handler) {
+  return subscribe('character-frame', handler)
+}
+
+export function onCharacterStatus(handler) {
+  return subscribe('character-status', handler)
 }

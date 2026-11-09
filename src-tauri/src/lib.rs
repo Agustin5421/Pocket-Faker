@@ -3,6 +3,7 @@ mod gameplay;
 mod inference;
 mod pipeline;
 mod storage;
+mod vision;
 
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -97,6 +98,19 @@ fn get_model_info(state: State<'_, AppState>) -> pipeline::ModelInfo {
 }
 
 #[tauri::command]
+fn get_vision_config(state: State<'_, AppState>) -> Result<vision::VisionConfig, String> {
+    state.pipeline.config()
+}
+
+#[tauri::command]
+fn set_vision_config(
+    config: vision::VisionConfig,
+    state: State<'_, AppState>,
+) -> Result<vision::VisionConfig, String> {
+    state.pipeline.set_config(config)
+}
+
+#[tauri::command]
 fn get_pipeline_status(state: State<'_, AppState>) -> pipeline::PipelineStatus {
     state.pipeline.status()
 }
@@ -125,8 +139,11 @@ async fn start_capture(
 }
 
 #[tauri::command]
-fn stop_capture(state: State<'_, AppState>) -> Result<pipeline::PipelineStatus, String> {
-    state.pipeline.stop()
+async fn stop_capture(state: State<'_, AppState>) -> Result<pipeline::PipelineStatus, String> {
+    let pipeline = state.pipeline.clone();
+    tauri::async_runtime::spawn_blocking(move || pipeline.stop())
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 fn resolve_model_directory(
@@ -177,7 +194,8 @@ pub fn run() {
                 paths.replay_directory.clone(),
                 model_directory,
                 paths.data_directory.join("model-cache"),
-            ));
+                paths.data_directory.join("character-vision.json"),
+            )?);
 
             app.manage(AppState {
                 database_path: paths.database_path,
@@ -198,6 +216,8 @@ pub fn run() {
             open_capture_permission_settings,
             get_model_info,
             get_pipeline_status,
+            get_vision_config,
+            set_vision_config,
             start_capture,
             stop_capture
         ])

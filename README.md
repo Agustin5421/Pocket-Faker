@@ -17,7 +17,7 @@ El [documento de contexto del proyecto](docs/contexto-proyecto.md) describe los 
 - **ScreenCaptureKit** mantiene un stream persistente de la ventana o display en macOS, incluso al cambiar de ventana o Space.
 - **xcap** queda aislado como adaptador de captura para futuros builds en otros sistemas operativos.
 
-El archivo `yolo11x-minimap.pt` existente no es modificado por la aplicación ni se incluye en Git. Python se utiliza únicamente para producir el artefacto ONNX; no se necesita un proceso Python durante una sesión.
+El archivo `yolo11x-minimap.pt` existente no es modificado por la aplicación ni se incluye en Git. El modo actual no necesita Python durante una sesión. El backend opcional SAM 3 utiliza un worker Python persistente sobre el frame completo, con prompts de texto y sin entrenamiento. Consulte [preparación y límites de SAM 3](docs/sam3-runtime.md).
 
 La interfaz no incluye datos de demostración. Los paneles sin integración muestran explícitamente `Not connected`, `Not implemented` o `No data`; el historial de sesiones consulta SQLite directamente.
 
@@ -44,7 +44,7 @@ python scripts/export_aatrox.py --model /ruta/a/league-scrapper/artifacts/aatrox
 ```
 
 Esto genera `models/aatrox-grid-v1.onnx` (ignorado por Git). La app necesita
-ambos ONNX para iniciar el pipeline. Para usar otro directorio de modelos,
+ambos ONNX para iniciar el modo actual. En modo SAM 3 necesita el ONNX del minimapa y el checkpoint SAM 3 local; no carga Aatrox ONNX. Para usar otro directorio de modelos,
 `POCKET_FAKER_MODEL_DIR` debe apuntar a una carpeta con
 `yolo11x-minimap.onnx` y `models/aatrox-grid-v1.onnx`.
 
@@ -62,7 +62,18 @@ En macOS, Pocket Faker solicita el permiso de grabación de pantalla al iniciar.
 3. Ajustá FPS y confianza.
 4. Volvé a `Live` y presioná el botón central para iniciar o detener la sesión.
 
-Los dos modelos y el stream de ScreenCaptureKit se cargan al iniciar la captura.
+La frecuencia objetivo inicial es 10 FPS; puede cambiarse a 1, 2, 5, 10, 15 o 30
+FPS en Settings antes de iniciar captura. Live muestra `FPS / PIPELINE`: refresco medido y milisegundos de
+procesamiento completo, incluyendo análisis y preparación de previews. El límite
+configurado no garantiza esa frecuencia si el hardware tarda más por imagen.
+Los mismos tiempos se guardan como `refreshFps` y `processingMs` en el replay.
+
+La compilación de desarrollo optimiza los bucles de imagen y el código del
+pipeline conservando símbolos de depuración. Después de cambiar estos perfiles,
+reinicie `desktop:dev` para reconstruir el binario; refrescar sólo la página no
+actualiza el backend Rust.
+
+El modelo del minimapa, el backend del personaje seleccionado en Settings y el stream de ScreenCaptureKit se cargan al iniciar la captura. El selector ofrece Actual — Aatrox ONNX y SAM 3 — Experimental, conservando el primero como predeterminado.
 Cada frame completo pasa al detector de Aatrox; sólo el recorte inferior derecho
 pasa a YOLO. Los frames se comprimen y escriben en un proceso de fondo para no
 frenar la vista en vivo; si el disco no logra seguir el ritmo,
@@ -92,5 +103,30 @@ En macOS, SQLite se crea dentro del directorio estándar de Application Support.
 ## Alcance actual
 
 - El minimapa se obtiene como un recorte cuadrado del 30% de la altura, anclado abajo a la derecha. Esta estrategia es explícita y podrá sustituirse por calibración cuando se soporten más resoluciones o layouts.
-- La captura, YOLO del minimapa y el detector de Aatrox del frame completo están conectados. El seguimiento entre frames y el coach todavía permanecen desconectados.
+- La captura, YOLO del minimapa y el detector de Aatrox del frame completo están conectados. SAM 3 añade un backend opcional de seguimiento por texto cuya inferencia con pesos reales sigue pendiente de validación local. El coach y el reconocimiento de animaciones permanecen desconectados.
 - La interfaz web aislada (`npm run dev`) sirve para revisar el layout, pero el descubrimiento de ventanas, SQLite y la inferencia sólo existen dentro de Tauri.
+
+## YOLOv8 de Aatrox sintético
+
+Settings → **Modelo del personaje → YOLOv8n — Aatrox sintético v1 (experimental)** → Guardar modelo del personaje. Al iniciar próxima captura se carga `models/aatrox-yolov8n-synthetic-v1.onnx`. El detector anterior sigue disponible. Si archivo falta, interfaz indica indisponibilidad y captura falla explícitamente, sin detecciones inventadas. Disponibilidad se actualiza cada cinco segundos al seleccionar YOLOv8 y detener captura.
+
+Entrada RGB float32 NCHW 1280×736, letterbox sin deformar imagen; salida cruda `[1,5,N]`, clase única `0: aatrox`, NMS IoU 0,5 y confianza configurable. Inferencia ONNX Runtime CPU; Python se usa solamente para entrenamiento/exportación. Dataset sintético de ChampionForge: 6000 imágenes, Aatrox base, 24 clips y orientaciones, cámara fija sin calibración exacta. No clasifica habilidades ni acredita precisión real.
+
+YOLOv8 incluye **Seguimiento temporal de Aatrox**, activado por defecto en Settings.
+Asigna IDs estables y cubre pérdidas breves con cajas estimadas durante un máximo
+de 300 ms; aparecen discontinuas y ámbar. Las detecciones originales se conservan
+por separado en cada replay. Guarde la configuración y reinicie la captura para
+aplicar cambios. Consulte [seguimiento y datos para habilidades](docs/yolov8-tracking.md).
+
+Corrida local en `../ChampionForge/runs/aatrox-yolov8n-synthetic-v1/`: 20 épocas solicitadas, early stopping tras cinco sin mejora, GPU MPS. `training-status.json`, `launcher.log`, `results.csv` y `weights/{best,last}.pt` registran avance. Entrenamiento e importador corren como procesos independientes de esta conversación. No iniciar otra corrida sobre mismo directorio mientras esté activa.
+
+Exportaciones intermedias después de primera época y cada cinco; final al terminar. Se publica **mejor checkpoint por validación sintética**, no necesariamente última época. Cada exportación conserva metadatos y pasa ONNX checker e inferencia CPU antes de instalarse. La app carga archivo al iniciar captura; para usar versión nueva, detener y volver a iniciar captura.
+
+Importación manual o seguimiento de una corrida, usando entorno YOLO que incluya ONNX/ONNX Runtime:
+
+```sh
+../ChampionForge/.yolo-venv/bin/python scripts/import_yolov8.py \
+  --run ../ChampionForge/runs/aatrox-yolov8n-synthetic-v1 --watch
+```
+
+`models/aatrox-yolov8n-synthetic-v1.json` registra SHA, época de exportación, estado de entrenamiento y límites. `trainingComplete: false` indica checkpoint provisional, aunque sea seleccionable. Métricas sintéticas no deben presentarse como precisión sobre gameplay.

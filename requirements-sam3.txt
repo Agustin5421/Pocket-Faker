@@ -1,0 +1,5 @@
+# Versions verified for imports/API on macOS; pretrained inference still requires checkpoint validation.
+torch==2.14.1
+torchvision==0.29.1
+transformers==5.18.0
+pillow==12.3.0
